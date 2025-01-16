@@ -1,0 +1,30 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Secondary Region Setup for Disaster Recovery
+
+Resources:
+  DRWebServerInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t2.micro
+      ImageId: ami-0c02fb55956c7d316 # Amazon Linux 2
+      KeyName: your-key-pair
+      SecurityGroups:
+        - Ref: DRWebServerSecurityGroup
+      UserData:
+        Fn::Base64: |
+          #!/bin/bash
+          yum update -y
+          yum install -y httpd aws-cli
+          aws s3 cp s3://primary-region-backup-bucket/index.html /var/www/html/index.html
+          systemctl start httpd
+          systemctl enable httpd
+
+  DRWebServerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Enable HTTP Access
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
