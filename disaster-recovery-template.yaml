@@ -1,0 +1,179 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Disaster Recovery Setup for ECS Clusters
+
+Parameters:
+  PrimaryClusterName:
+    Type: String
+    Default: "ecs-cluster-us-east-1"
+    Description: Primary ECS cluster name in us-east-1.
+
+  SecondaryClusterName:
+    Type: String
+    Default: "ecs-cluster-us-west-2"
+    Description: Secondary ECS cluster name in us-west-2.
+
+  PrimaryTaskDefinitionArn:
+    Type: String
+    Description: Task definition ARN for the primary ECS cluster.
+
+  SecondaryTaskDefinitionArn:
+    Type: String
+    Description: Task definition ARN for the secondary ECS cluster.
+
+  PrimarySubnetIds:
+    Type: CommaDelimitedList
+    Description: Subnet IDs for the primary region (us-east-1).
+
+  SecondarySubnetIds:
+    Type: CommaDelimitedList
+    Description: Subnet IDs for the secondary region (us-west-2).
+
+  PrimarySecurityGroupIds:
+    Type: CommaDelimitedList
+    Description: Security Group IDs for the primary region.
+
+  SecondarySecurityGroupIds:
+    Type: CommaDelimitedList
+    Description: Security Group IDs for the secondary region.
+
+  PrimaryVpcId:
+    Type: String
+    Description: VPC ID for the primary region.
+
+  SecondaryVpcId:
+    Type: String
+    Description: VPC ID for the secondary region.
+
+Resources:
+  PrimaryECSService:
+    Type: AWS::ECS::Service
+    Properties:
+      Cluster: !Ref PrimaryClusterName
+      TaskDefinition: !Ref PrimaryTaskDefinitionArn
+      DesiredCount: 1
+      LaunchType: FARGATE
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          Subnets: !Ref PrimarySubnetIds
+          SecurityGroups: !Ref PrimarySecurityGroupIds
+          AssignPublicIp: ENABLED
+      LoadBalancers:
+        - ContainerName: node-app
+          ContainerPort: 80
+          TargetGroupArn: !Ref PrimaryTargetGroup
+
+  SecondaryECSService:
+    Type: AWS::ECS::Service
+    Properties:
+      Cluster: !Ref SecondaryClusterName
+      TaskDefinition: !Ref SecondaryTaskDefinitionArn
+      DesiredCount: 1
+      LaunchType: FARGATE
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          Subnets: !Ref SecondarySubnetIds
+          SecurityGroups: !Ref SecondarySecurityGroupIds
+          AssignPublicIp: ENABLED
+      LoadBalancers:
+        - ContainerName: node-app
+          ContainerPort: 80
+          TargetGroupArn: !Ref SecondaryTargetGroup
+
+  PrimaryLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: PrimaryLoadBalancer
+      Type: application
+      Scheme: internet-facing
+      Subnets: !Ref PrimarySubnetIds
+      SecurityGroups: !Ref PrimarySecurityGroupIds
+      Tags:
+        - Key: Name
+          Value: PrimaryLoadBalancer
+
+  SecondaryLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: SecondaryLoadBalancer
+      Type: application
+      Scheme: internet-facing
+      Subnets: !Ref SecondarySubnetIds
+      SecurityGroups: !Ref SecondarySecurityGroupIds
+      Tags:
+        - Key: Name
+          Value: SecondaryLoadBalancer
+
+  PrimaryTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: PrimaryTargetGroup
+      Port: 80
+      Protocol: HTTP
+      VpcId: !Ref PrimaryVpcId
+      TargetType: ip
+      HealthCheckProtocol: HTTP
+      HealthCheckPath: /
+      HealthCheckIntervalSeconds: 30
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 3
+      UnhealthyThresholdCount: 2
+
+  SecondaryTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: SecondaryTargetGroup
+      Port: 80
+      Protocol: HTTP
+      VpcId: !Ref SecondaryVpcId
+      TargetType: ip
+      HealthCheckProtocol: HTTP
+      HealthCheckPath: /
+      HealthCheckIntervalSeconds: 30
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 3
+      UnhealthyThresholdCount: 2
+
+  PrimaryListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref PrimaryLoadBalancer
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref PrimaryTargetGroup
+      Port: 80
+      Protocol: HTTP
+
+  SecondaryListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref SecondaryLoadBalancer
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref SecondaryTargetGroup
+      Port: 80
+      Protocol: HTTP
+
+Outputs:
+  PrimaryLoadBalancerDNS:
+    Description: DNS name of the primary load balancer.
+    Value: !GetAtt PrimaryLoadBalancer.DNSName
+    Export:
+      Name: PrimaryLoadBalancerDNS
+
+  SecondaryLoadBalancerDNS:
+    Description: DNS name of the secondary load balancer.
+    Value: !GetAtt SecondaryLoadBalancer.DNSName
+    Export:
+      Name: SecondaryLoadBalancerDNS
+
+  PrimaryClusterName:
+    Description: The name of the primary ECS Cluster.
+    Value: !Ref PrimaryClusterName
+    Export:
+      Name: PrimaryClusterName
+
+  SecondaryClusterName:
+    Description: The name of the secondary ECS Cluster.
+    Value: !Ref SecondaryClusterName
+    Export:
+      Name: SecondaryClusterName
